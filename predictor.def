@@ -1,0 +1,90 @@
+Bootstrap: docker
+From: tensorflow/tensorflow:2.18.0-gpu
+
+%files
+    predictor_RestAPI.py /predictor_container_deepbiccn2/
+    predictor_content_handler.py /predictor_container_deepbiccn2/
+    schema_validation.py /predictor_container_deepbiccn2/
+    error_checking_functions.py /predictor_container_deepbiccn2/
+    crested_utils.py /predictor_container_deepbiccn2/
+    predictor_help_message.json /predictor_container_deepbiccn2/
+    model/ /predictor_container_deepbiccn2/
+    environment.yml /crested_gpu_environment.yml
+
+%environment
+    export NUMBA_CACHE_DIR=/tmp/NUMBA_CACHE_DIR/
+    export MPLCONFIGDIR=/tmp/MPLCONFIGDIR/
+    export APPTAINER_NO_MOUNT="home,tmp,proc,sys,dev"
+    export LC_ALL=C
+    export PATH="/opt/conda/bin:$PATH"
+    export LD_LIBRARY_PATH="/opt/conda/lib:$LD_LIBRARY_PATH"
+
+%post
+    # Install system packages needed for conda and building extensions
+    echo "Installing system dependencies..."
+    apt-get update && apt-get install -y wget git build-essential zlib1g-dev
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+    # Install Miniconda
+    echo "Setting up Miniconda..."
+    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /miniconda.sh
+    bash /miniconda.sh -b -p /opt/conda
+    rm /miniconda.sh
+    export PATH=/opt/conda/bin:$PATH
+    conda init bash
+
+    # Create the conda environment using the correct file path
+    echo "Creating Conda environment 'crested_gpu environment'..."
+    CONDA_NO_PLUGINS=true conda config --set solver classic
+    CONDA_NO_PLUGINS=true conda env create -f crested_gpu_environment.yml
+    conda clean -a
+
+    # Activate the environment for subsequent commands
+    echo "Activating Conda environment..."
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate crested-gpu
+
+    # Install additional Python packages needed for REST API
+    echo "Installing Flask and msgpack for REST API..."
+    pip install --no-cache-dir flask msgpack
+
+    # Set permissions for copied files
+    echo "Setting permissions..."
+    chmod -R 755 /predictor_container_deepbiccn2
+
+%runscript
+    echo "Container is starting DeepBICCN2 REST API with CREsted GPU environment activated"
+    export PATH="/opt/conda/envs/crested-gpu/bin:$PATH"
+    exec python3 /predictor_container_deepbiccn2/predictor_RestAPI.py "$@"
+
+%startscript
+    export PATH="/opt/conda/envs/crested-gpu/bin:$PATH"
+    exec python3 /predictor_container_deepbiccn2/predictor_RestAPI.py "$@"
+
+%labels
+    DeepBICCN2 REST API Predictor
+    Author "Lukas Mahieu"
+
+%help
+    DeepBICCN2 REST API Predictor
+
+    This container runs the DeepBICCN2 model as a REST API service for predicting
+    chromatin accessibility across multiple mouse brain cell types.
+
+    Documentation:
+    https://crested.readthedocs.io/en/stable/models/BICCN/deepbiccn2.html
+
+    Build the container (SIF)
+    ```
+    apptainer build deepbiccn2_restapi_predictor.sif predictor.def
+    ```
+
+    Run the container
+    ```
+    apptainer run --nv deepbiccn2_restapi_predictor.sif <HOST> <PORT>
+    ```
+
+    Example:
+    ```
+    apptainer run --nv deepbiccn2_restapi_predictor.sif 0.0.0.0 5000
+    ```
