@@ -1,7 +1,7 @@
 '''Validation and Preprocessing of Payload for DeepBICCN2 Predictor'''
 import tqdm
 from error_checking_functions import *
-from crested_utils import pad_sequences, get_cell_type_index
+from crested_utils import pad_sequences, valid_cell_type_names, CANONICAL_TO_MODEL
 
 # DeepBICCN2 Model Constraints
 SUPPORTED_SPECIES = ["mus_musculus"]
@@ -144,8 +144,7 @@ def preprocess_data(payload):
 
     # --- DeepBICCN2-Specific: Validate cell types against model outputs ---
     try:
-        cell_type_mapping = get_cell_type_index()
-        valid_cell_types = set(cell_type_mapping.keys())
+        valid_cell_types = valid_cell_type_names()
     except Exception as e:
         raise PredictionFailedError(f"Failed to load cell type mapping: {e}")
 
@@ -156,7 +155,7 @@ def preprocess_data(payload):
         if cell_type not in valid_cell_types:
             errors['prediction_request_failed'].append(
                 f"Cell type '{cell_type}' in task '{task_name}' is not recognized by DeepBICCN2. "
-                f"Valid cell types: {sorted(list(valid_cell_types))}"
+                f"Valid cell types: {sorted(CANONICAL_TO_MODEL.keys())}"
             )
 
     if any(errors.values()):

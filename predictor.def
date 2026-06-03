@@ -3,6 +3,7 @@ From: tensorflow/tensorflow:2.18.0-gpu
 
 %files
     predictor_RestAPI.py /predictor_container_deepbiccn2/
+    config.py /predictor_container_deepbiccn2/
     predictor_content_handler.py /predictor_container_deepbiccn2/
     schema_validation.py /predictor_container_deepbiccn2/
     error_checking_functions.py /predictor_container_deepbiccn2/
@@ -15,6 +16,10 @@ From: tensorflow/tensorflow:2.18.0-gpu
     export NUMBA_CACHE_DIR=/tmp/NUMBA_CACHE_DIR/
     export MPLCONFIGDIR=/tmp/MPLCONFIGDIR/
     export APPTAINER_NO_MOUNT="home,tmp,proc,sys,dev"
+    # Ignore the host user's ~/.local/lib/pythonX.Y/site-packages. Without this,
+    # a host-installed package (e.g. modiscolite/numba) can shadow the bundled
+    # conda env and break imports, making the container non-portable across hosts.
+    export PYTHONNOUSERSITE=1
     export LC_ALL=C
     export PATH="/opt/conda/bin:$PATH"
     export LD_LIBRARY_PATH="/opt/conda/lib:$LD_LIBRARY_PATH"
@@ -62,8 +67,11 @@ From: tensorflow/tensorflow:2.18.0-gpu
     exec python3 /predictor_container_deepbiccn2/predictor_RestAPI.py "$@"
 
 %labels
-    DeepBICCN2 REST API Predictor
     Author "Lukas Mahieu"
+    game_schema_version "1.0"
+    Description "DeepBICCN2 REST API Predictor for the GAME framework. Predicts chromatin accessibility (Tn5 cut-site counts) across mouse brain cell types."
+    # NOTE: the build date is appended to the predictor name automatically at run time
+    # via Apptainer's org.label-schema.build-date label (see config.py).
 
 %help
     DeepBICCN2 REST API Predictor

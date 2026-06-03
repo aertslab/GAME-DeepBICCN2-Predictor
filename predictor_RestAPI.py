@@ -6,35 +6,22 @@ import json
 import numpy as np
 from flask import Flask
 
+from config import (
+    PREDICTOR_NAME,
+    HELP_FILE,
+    SUPPORTED_REQUEST_FORMATS,
+    SUPPORTED_RESPONSE_FORMATS,
+)
 from error_checking_functions import *
 from schema_validation import *
-from crested_utils import predict_crested, get_cell_type_index
+from crested_utils import predict_crested, resolve_cell_type_index
 from predictor_content_handler import decode_request, encode_response
 
 # Get the absolute path of the script's directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Hardcode name of this Predictor. It will be added to ALL responses.
-PREDICTOR_NAME = "DeepBICCN2"
-
-# Determine if running inside a container or not
-if os.path.exists("/.singularity.d"):
-    # Running inside the container
-    print("Running inside the container...🥡")
-    HELP_FILE = "/predictor_container_deepbiccn2/predictor_help_message.json"
-else:
-    # Running outside the container
-    print("Running outside the container...📋")
-    HELP_FILE = os.path.join(SCRIPT_DIR, "predictor_help_message.json")
-
-
-# ------ Configuration for Wire-Format ------
-SUPPORTED_REQUEST_FORMATS = [
-    fmt.lower() for fmt in ["application/json", "application/msgpack"]
-]
-SUPPORTED_RESPONSE_FORMATS = [
-    fmt.lower() for fmt in ["application/json", "application/msgpack"]
-]
+# PREDICTOR_NAME, HELP_FILE, and the supported wire formats are defined in config.py.
+# PREDICTOR_NAME is versioned with the container build date (see config.py).
 
 # --- Flask App and Central Error Handler ---
 app = Flask(__name__)
@@ -143,9 +130,6 @@ def predict():
         # Format: {seq_id: numpy_array[num_cell_types]}
         all_predictions = predict_crested(sequences)
 
-        # Get cell type mapping to extract the right predictions
-        cell_type_mapping = get_cell_type_index()
-
         # Assemble the response
         json_return = {"prediction_tasks": []}
 
@@ -156,8 +140,9 @@ def predict():
             requested_species = task["species"]
             requested_scale = task.get("scale", "linear")
 
-            # Get the index for the requested cell type
-            cell_type_idx = cell_type_mapping.get(requested_cell_type)
+            # Get the index for the requested cell type. Accepts canonical names
+            # (advertised in /help) or the model's short labels.
+            cell_type_idx = resolve_cell_type_index(requested_cell_type)
 
             if cell_type_idx is None:
                 raise PredictionFailedError(
@@ -183,18 +168,20 @@ def predict():
                     transformed_value = float(raw_value)
                     actual_scale = "log"
 
-                # Convert numpy types to Python native types for JSON serialization
-                if isinstance(transformed_value, (np.generic, np.ndarray)):
-                    task_predictions[seq_id] = float(transformed_value)
-                else:
-                    task_predictions[seq_id] = transformed_value
+                # Per the GAME API spec, every prediction is returned as an array
+                # so that point and track readouts share a consistent shape. For a
+                # point readout this is a one-element array: [value].
+                task_predictions[seq_id] = [float(transformed_value)]
 
             # Build the task response
             json_return["prediction_tasks"].append(
                 {
                     "name": task_name,
                     "type_requested": requested_type,
-                    "type_actual": "Tn5 cut-site counts",  # DeepBICCN2 outputs Tn5 cut-site counts
+                    # type_actual is the list of assay(s) the model actually predicts
+                    # (GAME API spec). DeepBICCN2 predicts ATAC accessibility
+                    # (Tn5 cut-site counts).
+                    "type_actual": ["ATAC"],
                     "cell_type_requested": requested_cell_type,
                     "cell_type_actual": requested_cell_type,
                     "scale_prediction_requested": requested_scale,

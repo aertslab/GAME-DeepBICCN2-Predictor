@@ -19,6 +19,56 @@ def get_cell_type_index():
     targets_df = pd.read_csv(targets_file, sep="\t", names=["target"])
     return {target: i for i, target in enumerate(targets_df["target"])}
 
+
+# Canonical (full) cell-type names advertised to Evaluators, mapped to the short
+# labels used internally by the DeepBICCN2 model (model/deepbiccn2_output_classes.tsv).
+# Advertising canonical names increases the chance of an exact match with other
+# GAME Evaluators/Predictors without relying on the Matcher. The neuronal
+# subclasses (Pvalb, Sst, Vip, Lamp5, Sncg, L6b) already use their standard
+# Allen/BICCN taxonomy labels, so they are unchanged.
+CANONICAL_TO_MODEL = {
+    "Astrocyte": "Astro",
+    "Endothelial": "Endo",
+    "L2/3 IT": "L2_3IT",
+    "L5 ET": "L5ET",
+    "L5 IT": "L5IT",
+    "L5/6 NP": "L5_6NP",
+    "L6 CT": "L6CT",
+    "L6 IT": "L6IT",
+    "L6b": "L6b",
+    "Lamp5": "Lamp5",
+    "Micro-PVM": "Micro_PVM",
+    "OPC": "OPC",
+    "Oligodendrocyte": "Oligo",
+    "Pvalb": "Pvalb",
+    "Sncg": "Sncg",
+    "Sst": "Sst",
+    "Sst Chodl": "SstChodl",
+    "VLMC": "VLMC",
+    "Vip": "Vip",
+}
+
+
+def resolve_cell_type_index(requested_cell_type):
+    """
+    Map a requested cell type to its DeepBICCN2 model output index.
+
+    Accepts either a canonical name (as advertised in /help) or the model's own
+    short label, so the predictor stays backward compatible with either form.
+    Returns None if the name is not recognized.
+    """
+    index_map = get_cell_type_index()
+    short_name = CANONICAL_TO_MODEL.get(requested_cell_type, requested_cell_type)
+    return index_map.get(short_name)
+
+
+def valid_cell_type_names():
+    """
+    Set of all cell-type names the predictor accepts: the canonical names plus
+    the model's own short labels (for backward compatibility).
+    """
+    return set(CANONICAL_TO_MODEL.keys()) | set(get_cell_type_index().keys())
+
 #padd sequences
 def pad_sequences(sequences):
     required_length = 2114

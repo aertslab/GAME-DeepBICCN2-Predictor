@@ -1,30 +1,29 @@
 {
   "model": "DeepBICCN2",
-  "version": "1.0",
+  "game_schema_version": "1.0",
   "publication": "Kempynck, N., De Winter, S., et al. CREsted: modeling genomic and synthetic cell type-specific enhancers across tissues and species. Zenodo. https://doi.org/10.5281/zenodo.13918932",
   "documentation": "https://crested.readthedocs.io/en/stable/models/BICCN/deepbiccn2.html",
-  "build_date": "2024-08-05",
   "features": [
-    "accessibility"
+    "ATAC"
   ],
   "cell_types": [
-    "Astro",
-    "Endo",
-    "L2_3IT",
-    "L5ET",
-    "L5IT",
-    "L5_6NP",
-    "L6CT",
-    "L6IT",
+    "Astrocyte",
+    "Endothelial",
+    "L2/3 IT",
+    "L5 ET",
+    "L5 IT",
+    "L5/6 NP",
+    "L6 CT",
+    "L6 IT",
     "L6b",
     "Lamp5",
-    "Micro_PVM",
+    "Micro-PVM",
     "OPC",
-    "Oligo",
+    "Oligodendrocyte",
     "Pvalb",
     "Sncg",
     "Sst",
-    "SstChodl",
+    "Sst Chodl",
     "VLMC",
     "Vip"
   ],
@@ -35,13 +34,14 @@
     "point"
   ],
   "supported_scales": [
-    "linear"
+    "linear",
+    "log"
   ],
   "container_authors": [
     "Lukas Mahieu"
   ],
   "model_authors": "Niklas Kempynck",
-  "input_size": "2114 bp (sequences will be padded/cropped automatically)",
+  "input_size": 2114,
   "output_type": "Tn5 cut-site counts",
   "description": "DeepBICCN2 is a deep learning model for predicting chromatin accessibility across multiple brain cell types in mouse. The model was trained on BICCN data and outputs Tn5 cut-site counts representing accessibility."
 }
