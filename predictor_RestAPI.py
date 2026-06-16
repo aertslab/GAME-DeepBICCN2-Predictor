@@ -168,10 +168,9 @@ def predict():
                     transformed_value = float(raw_value)
                     actual_scale = "log"
 
-                # Per the GAME API spec, every prediction is returned as an array
-                # so that point and track readouts share a consistent shape. For a
-                # point readout this is a one-element array: [value].
-                task_predictions[seq_id] = [float(transformed_value)]
+                # Point-based models return a scalar value per sequence (GAME API
+                # spec). transformed_value is already a Python float.
+                task_predictions[seq_id] = transformed_value
 
             # Build the task response
             json_return["prediction_tasks"].append(
