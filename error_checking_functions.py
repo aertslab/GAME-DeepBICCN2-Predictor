@@ -225,42 +225,33 @@ def check_prediction_task_scale(prediction_tasks, json_return_error):
 def check_prediction_ranges(prediction_ranges, sequences, json_return_error):
     """
     Checks that prediction_ranges are formatted correctly.
-    Now includes checks for positive integers and start <= end.
+    Includes checks for non-negative integers and start < end.
     """
     for key, value in prediction_ranges.items():
-        
         if not isinstance(value, list):
             json_return_error['bad_prediction_request'].append(f"Values for '{key}' in 'prediction_ranges' must be in a list")
-            
+            continue
+
         if not value:
             continue
         
         if len(value) != 2:
             json_return_error['bad_prediction_request'].append(f"Range array for '{key}' in 'prediction_ranges' must have 2 elements")
+            continue
         
         if not all(isinstance(num, int) for num in value):
             json_return_error['bad_prediction_request'].append(f"Values in '{key}' in 'prediction_ranges' must be integers")
+            continue
         
         start = value[0]
         end = value[1]
         
         if start < 0 or end < 0:
-            json_return_error['bad_prediction_request'].append(f"Invalid range for '{key}' in 'prediction_ranges': indices must be positive. Received [{start}, {end}]")
+            json_return_error['bad_prediction_request'].append(f"Invalid range for '{key}' in 'prediction_ranges': indices must be non-negative. Received [{start}, {end}]")
             
-        if start > end:
-            json_return_error['bad_prediction_request'].append(f"Invalid range for '{key}' in 'prediction_ranges': start index ({start}) cannot be greater than end index ({end}). Received [{start}, {end}]")
+        if start >= end:
+            json_return_error['bad_prediction_request'].append(f"Invalid range for '{key}' in 'prediction_ranges': start index ({start}) must be less than end index ({end}). Received [{start}, {end}]")
 
-        # UPDATED: Out-of-bounds check with a clearer message
-        seq_len = len(sequences.get(key, ''))
-        # Check start index bounds as well, just in case
-        if start >= seq_len or end >= seq_len:
-            # Handle the empty sequence case for a clean message
-            if seq_len == 0:
-                 err_msg = f"Invalid range for '{key}': cannot specify a range for a non-existent or empty sequence."
-            else:
-                err_msg = f"Invalid range for '{key}': index is out of bounds. The maximum valid index for a sequence of length {seq_len} is {seq_len - 1}."
-            json_return_error['bad_prediction_request'].append(err_msg)
-    
     return json_return_error
 
 ##check that seqids have valid characters

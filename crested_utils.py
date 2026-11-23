@@ -62,6 +62,19 @@ def resolve_cell_type_index(requested_cell_type):
     return index_map.get(short_name)
 
 
+def canonical_cell_type_name(requested_cell_type):
+    """
+    Returns the canonical (full) name of a requested cell type, as advertised in /help,
+    so cell_type_actual is reported consistently whether the request used the canonical
+    name or the model's short label (e.g. both "Astrocyte" and "Astro" -> "Astrocyte").
+    Returns the requested name unchanged if it is not recognized.
+    """
+    if requested_cell_type in CANONICAL_TO_MODEL:
+        return requested_cell_type
+    model_to_canonical = {short: canonical for canonical, short in CANONICAL_TO_MODEL.items()}
+    return model_to_canonical.get(requested_cell_type, requested_cell_type)
+
+
 def valid_cell_type_names():
     """
     Set of all cell-type names the predictor accepts: the canonical names plus
