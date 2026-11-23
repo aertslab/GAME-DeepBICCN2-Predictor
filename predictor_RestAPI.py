@@ -14,7 +14,7 @@ from config import (
 )
 from error_checking_functions import *
 from schema_validation import *
-from crested_utils import predict_crested, resolve_cell_type_index
+from crested_utils import predict_crested, resolve_cell_type_index, canonical_cell_type_name
 from predictor_content_handler import decode_request, encode_response
 
 # Get the absolute path of the script's directory
@@ -122,32 +122,51 @@ def predict():
         # which will be caught automatically by @app.errorhandler
         validate_request_payload(evaluator_request)
 
-        # Preprocess the data (flanking, ranges, padding, cell type validation)
+        # Preprocess the data (flanking, ranges, padding, sequence checks)
         sequences = preprocess_data(evaluator_request)
+
+        # Tasks the model cannot perform (unsupported species/type, unknown cell type) are
+        # returned as failed tasks below; the model only runs if at least one task can be done.
+        failure_reasons = [task_failure_reason(task) for task in evaluator_request["prediction_tasks"]]
 
         # --- Run DeepBICCN2 Model Inference ---
         # This returns predictions for ALL cell types for each sequence
         # Format: {seq_id: numpy_array[num_cell_types]}
-        all_predictions = predict_crested(sequences)
+        if any(reason is None for reason in failure_reasons):
+            all_predictions = predict_crested(sequences)
 
         # Assemble the response
         json_return = {"prediction_tasks": []}
 
-        for task in evaluator_request["prediction_tasks"]:
+        for task, failure_reason in zip(evaluator_request["prediction_tasks"], failure_reasons):
             task_name = task["name"]
             requested_cell_type = task["cell_type"]
             requested_type = task["type"]
             requested_species = task["species"]
             requested_scale = task.get("scale", "linear")
 
+            # A task the model cannot perform is still returned, with every *_actual set to
+            # null and an error object in place of predictions (GAME spec). HTTP status stays 200.
+            if failure_reason is not None:
+                json_return["prediction_tasks"].append(
+                    {
+                        "name": task_name,
+                        "type_requested": requested_type,
+                        "type_actual": None,
+                        "cell_type_requested": requested_cell_type,
+                        "cell_type_actual": None,
+                        "scale_prediction_requested": requested_scale,
+                        "scale_prediction_actual": None,
+                        "species_requested": requested_species,
+                        "species_actual": None,
+                        "predictions": {"error": [{"prediction_request_failed": failure_reason}]},
+                    }
+                )
+                continue
+
             # Get the index for the requested cell type. Accepts canonical names
             # (advertised in /help) or the model's short labels.
             cell_type_idx = resolve_cell_type_index(requested_cell_type)
-
-            if cell_type_idx is None:
-                raise PredictionFailedError(
-                    f"Cell type '{requested_cell_type}' not found in DeepBICCN2 model outputs."
-                )
 
             # Extract predictions for this specific cell type from all sequences
             # DeepBICCN2 model outputs predictions in log scale (log1p transformed)
@@ -182,7 +201,9 @@ def predict():
                     # (Tn5 cut-site counts).
                     "type_actual": ["ATAC"],
                     "cell_type_requested": requested_cell_type,
-                    "cell_type_actual": requested_cell_type,
+                    # The cell type the model actually used, always reported by its
+                    # canonical name (as in /help), even if the short label was requested
+                    "cell_type_actual": canonical_cell_type_name(requested_cell_type),
                     "scale_prediction_requested": requested_scale,
                     "scale_prediction_actual": actual_scale,
                     "species_requested": requested_species,

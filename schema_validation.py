@@ -48,33 +48,11 @@ def validate_request_payload(payload):
     if 'downstream_seq' in payload:
         errors = check_key_values_downstream_flank(payload['downstream_seq'], errors)
 
-    # --- DeepBICCN2-Specific Validation: Check readout type ---
-    readout_type = payload.get('readout')
-    if readout_type not in SUPPORTED_READOUTS:
-        errors['bad_prediction_request'].append(
-            f"DeepBICCN2 only supports readout types {SUPPORTED_READOUTS}. "
-            f"Received '{readout_type}'."
-        )
-
-    # --- DeepBICCN2-Specific Validation: Check species, type, and scale in tasks ---
+    # --- DeepBICCN2-Specific Validation: Check scale in tasks ---
+    # Unsupported species, types and cell types are not request errors: those tasks are
+    # returned individually as failed tasks (see task_failure_reason), per the GAME spec.
     for task in payload['prediction_tasks']:
         task_name = task.get('name', 'unknown')
-
-        # Check species
-        species = task.get('species', '').lower()
-        if species not in SUPPORTED_SPECIES:
-            errors['bad_prediction_request'].append(
-                f"DeepBICCN2 only supports species {SUPPORTED_SPECIES}. "
-                f"Task '{task_name}' requested '{species}'."
-            )
-
-        # Check type
-        pred_type = task.get('type', '').lower()
-        if pred_type not in SUPPORTED_TYPES:
-            errors['bad_prediction_request'].append(
-                f"DeepBICCN2 only supports prediction types {SUPPORTED_TYPES}. "
-                f"Task '{task_name}' requested '{pred_type}'."
-            )
 
         # Check scale (if provided)
         scale = task.get('scale', 'linear').lower()
@@ -92,10 +70,10 @@ def preprocess_data(payload):
     """
     Handles data preprocessing for DeepBICCN2:
     - Applies flanking sequences if provided
-    - Applies prediction ranges if provided
+    - Checks prediction ranges are within the flanked sequences, then applies them
     - Pads/crops sequences to required length (2114bp)
-    - Validates cell types against model outputs
-    - Checks sequence specifications
+    - Checks sequence specifications and that the readout is supported
+    (Cell types, species and types are checked per task in task_failure_reason.)
 
     Returns:
         Processed sequences ready for model input
@@ -125,14 +103,36 @@ def preprocess_data(payload):
                 flanked = f"{upstream_seq}{sequence}{downstream_seq}"
                 sequences[seq_id] = flanked
 
+    # Check that prediction_ranges are within the (flanked) sequences.
+    # Since this is model-specific, it utilizes `PredictionFailedError`.
+    errors = {'prediction_request_failed': []}
+    if 'prediction_ranges' in payload:
+        for seq_id, pr in payload['prediction_ranges'].items():
+            if pr: # Only process non-empty ranges
+                start, end = pr
+                seq_len = len(sequences[seq_id])
+
+                if start >= seq_len or end > seq_len:
+                    # Handle the empty sequence case for a clean message
+                    if seq_len == 0:
+                        err_msg = f"Invalid range for '{seq_id}': cannot specify a range for a non-existent or empty sequence."
+                    else:
+                        err_msg = f"Invalid range for '{seq_id}': index is out of bounds. For a sequence of length {seq_len}, start must be < {seq_len} and end must be <= {seq_len}."
+                    errors['prediction_request_failed'].append(err_msg)
+
+    if any(errors.values()):
+        flagged_errors = [msg for sublist in errors.values() for msg in sublist]
+        raise PredictionFailedError(flagged_errors)
+
     # Apply prediction_ranges if provided
     if 'prediction_ranges' in payload:
         for seq_id, pr in payload['prediction_ranges'].items():
             if pr:  # Only process non-empty ranges
                 start, end = pr
-                # Slice the sequence. `prediction_range` is start, end inclusive
-                sequences[seq_id] = sequences[seq_id][start:end+1]
-                print(f"Sequence '{seq_id}' trimmed to prediction range [{start}, {end}].")
+                # Slice the sequence. `prediction_range` is half-open per the GAME spec:
+                # start inclusive, end exclusive (Python slicing)
+                sequences[seq_id] = sequences[seq_id][start:end]
+                print(f"Sequence '{seq_id}' trimmed to prediction range [{start}, {end}).")
 
     # --- DeepBICCN2-Specific: Pad or crop sequences to required length (2114bp) ---
     print("Padding/cropping sequences to 2114bp for DeepBICCN2 model...")
@@ -142,24 +142,40 @@ def preprocess_data(payload):
     errors = {'prediction_request_failed': []}
     errors = check_seqs_specifications(sequences, errors)
 
-    # --- DeepBICCN2-Specific: Validate cell types against model outputs ---
-    try:
-        valid_cell_types = valid_cell_type_names()
-    except Exception as e:
-        raise PredictionFailedError(f"Failed to load cell type mapping: {e}")
-
-    for task in payload['prediction_tasks']:
-        task_name = task.get('name', 'unknown')
-        cell_type = task.get('cell_type')
-
-        if cell_type not in valid_cell_types:
-            errors['prediction_request_failed'].append(
-                f"Cell type '{cell_type}' in task '{task_name}' is not recognized by DeepBICCN2. "
-                f"Valid cell types: {sorted(CANONICAL_TO_MODEL.keys())}"
-            )
+    # Model-specific error checking: Readout type check
+    readout_type = payload['readout']
+    if not readout_type in SUPPORTED_READOUTS:
+        raise PredictionFailedError(f"DeepBICCN2 cannot process '{readout_type}' readout type.")
 
     if any(errors.values()):
         flagged_errors = [msg for sublist in errors.values() for msg in sublist]
         raise PredictionFailedError(flagged_errors)
 
     return sequences
+
+def task_failure_reason(task):
+    """
+    Checks whether DeepBICCN2 can perform a single prediction task.
+
+    A task the model cannot perform (unsupported species or type, or a cell type the
+    model does not have) is returned on its own as a failed task, while the other tasks
+    are still predicted (GAME spec: "Tasks the Predictor cannot perform").
+
+    Returns:
+        str: why the task cannot be performed, or None if it can be performed
+    """
+    species = task['species'].lower()
+    if species not in SUPPORTED_SPECIES:
+        return (f"DeepBICCN2 only supports species {SUPPORTED_SPECIES}. "
+                f"Task '{task['name']}' requested '{task['species']}'.")
+
+    pred_type = task['type'].lower()
+    if pred_type not in SUPPORTED_TYPES:
+        return (f"DeepBICCN2 only supports prediction types {SUPPORTED_TYPES}. "
+                f"Task '{task['name']}' requested '{task['type']}'.")
+
+    if task['cell_type'] not in valid_cell_type_names():
+        return (f"Cell type '{task['cell_type']}' in task '{task['name']}' is not recognized by DeepBICCN2. "
+                f"Valid cell types: {sorted(CANONICAL_TO_MODEL.keys())}")
+
+    return None
